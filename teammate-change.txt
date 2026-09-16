@@ -1,0 +1,1 @@
+This commit simulates a teammate pushing while your local remote-tracking ref is stale.
