@@ -1,5 +1,11 @@
+import math
+
+
 def final_price(total, discount_percent):
     """Calculate price after discount."""
+    if not math.isfinite(total) or not math.isfinite(discount_percent):
+        raise ValueError("inputs must be finite numbers")
+
     if total < 0:
         raise ValueError("total must be non-negative")
 
