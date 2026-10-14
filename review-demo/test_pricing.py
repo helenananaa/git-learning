@@ -22,6 +22,16 @@ class PricingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             final_price(100, -20)
 
+    def test_non_finite_total(self):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(ValueError):
+                final_price(bad, 20)
+
+    def test_non_finite_discount(self):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(ValueError):
+                final_price(100, bad)
+
 
 if __name__ == "__main__":
     unittest.main()
