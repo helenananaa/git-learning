@@ -6,27 +6,82 @@ on:
     branches: [main]
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  python-tests:
-    runs-on: ubuntu-latest
-
+  # 1. Cross-platform testing
+  matrix-tests:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.12', '3.13']
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
+      - name: Run tests
+        run: python -B -m unittest discover -s review-demo -p 'test_*.py' -v
 
-      - name: Run unit tests
+  # 2. Package the tested source code
+  build-package:
+    needs: matrix-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create source ZIP
         run: |
-          python -B -m unittest discover \
-            -s review-demo \
-            -p 'test_*.py' \
-            -v
+          mkdir -p dist
+          python -m zipfile -c dist/pricing-demo.zip review-demo/pricing.py review-demo/test_pricing.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pricing-demo-package
+          path: dist/pricing-demo.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # 3. Stable status check for branch protection
+  python-tests:
+    name: python-tests
+    needs: [matrix-tests, build-package]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm required jobs passed
+        env:
+          TEST_RESULT: ${{ needs.matrix-tests.result }}
+          BUILD_RESULT: ${{ needs.build-package.result }}
+        run: |
+          test "$TEST_RESULT" = "success"
+          test "$BUILD_RESULT" = "success"
+
+  # 4. Publish only for version tags
+  release:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: [python-tests, build-package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify tag commit is on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/download-artifact@v8
+        with:
+          name: pricing-demo-package
+          path: dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/pricing-demo.zip --generate-notes --verify-tag
